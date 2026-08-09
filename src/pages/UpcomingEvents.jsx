@@ -301,9 +301,10 @@ export default function UpcomingEvents() {
                 userRole === 'officer' && (
                     <button 
                         onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 bg-white text-[#CC0000] px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-gray-50 transition-colors"
+                        className="flex items-center gap-2 bg-white text-[#CC0000] md:px-6 px-3 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-gray-50 transition-colors"
                     >
-                        <Plus size={18} strokeWidth={3} /> Add Event
+                        <Plus size={18} strokeWidth={3} />
+                        <span className="hidden md:inline">Add Event</span>
                     </button>
                 )
             }
@@ -314,7 +315,7 @@ export default function UpcomingEvents() {
               TIMELINE CONTENT 
               ============================================
             */}
-            <div className="w-full max-w-5xl mx-auto pt-6 mt-[40px]">
+            <div className="w-full max-w-5xl mx-auto pt-6 mt-[30px] md:mt-[40px]">
                 {Object.keys(groupedEvents).map((monthYear, index) => (
                     <div key={index} className="relative pl-8 md:pl-0 mb-12">
                         

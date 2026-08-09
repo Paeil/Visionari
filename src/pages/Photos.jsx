@@ -4,20 +4,19 @@ import { Pencil, Trash2, Calendar, UploadCloud, X, TriangleAlert, Plus, Download
 import { supabase } from '../supabaseClient';
 
 export default function Photos() {
-    // Fetch the role to determine view permissions
     const userRole = localStorage.getItem('visionari_role') || 'officer';
 
-    // Scroll to top on load
     useEffect(() => {
         window.scrollTo(0, 0);
         fetchAlbums();
     }, []);
 
-    // Load albums from Supabase
     const [albums, setAlbums] = useState([]);
 
-  const fetchAlbums = async () => {
-        // 1. INSTANT OFFLINE BYPASS
+    // ==========================================
+    // AGGRESSIVE OFFLINE DATA FETCHING
+    // ==========================================
+    const fetchAlbums = async () => {
         if (!navigator.onLine) {
             console.warn('Device is offline. Loading albums instantly from cache...');
             const cached = localStorage.getItem('visionari_albums_cache');
@@ -25,7 +24,6 @@ export default function Photos() {
             return;
         }
 
-        // 2. ONLINE FETCH
         try {
             const { data, error } = await supabase.from('photos').select('*');
             if (error) throw error;
@@ -66,20 +64,21 @@ export default function Photos() {
     const [desc, setDesc] = useState('');
     const [driveLink, setDriveLink] = useState('');
     const [coverImage, setCoverImage] = useState('');
+    
+    // NEW: File state for Supabase Upload
+    const [coverFile, setCoverFile] = useState(null);
 
-    // Handle Image Upload (Convert to Base64)
+    // ==========================================
+    // HANDLE IMAGE PREVIEW & UPLOAD
+    // ==========================================
     const handleImageUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setCoverImage(reader.result);
-            };
-            reader.readAsDataURL(file);
+            setCoverFile(file); // Save the actual file to state for cloud upload
+            setCoverImage(URL.createObjectURL(file)); // Generate instant local preview URL
         }
     };
 
-    // Open Modal for Creating
     const handleOpenCreate = () => {
         setEditingAlbumId(null);
         setTitle('');
@@ -87,10 +86,10 @@ export default function Photos() {
         setDesc('');
         setDriveLink('');
         setCoverImage('');
+        setCoverFile(null);
         setIsAlbumModalOpen(true);
     };
 
-    // Open Modal for Editing
     const handleOpenEdit = (album) => {
         setEditingAlbumId(album.id);
         setTitle(album.title);
@@ -98,91 +97,114 @@ export default function Photos() {
         setDesc(album.desc);
         setDriveLink(album.driveLink);
         setCoverImage(album.coverImage);
+        setCoverFile(null);
         setIsAlbumModalOpen(true);
     };
 
-    // Save Album (Create or Edit)
+    // ==========================================
+    // OPTIMISTIC OFFLINE-FIRST SAVE & CLOUD UPLOAD
+    // ==========================================
     const handleSaveAlbum = async () => {
         if (!title || !driveLink) return alert("Title and Google Drive Link are required!");
 
-        if (editingAlbumId) {
-            const targetAlbum = albums.find(a => a.id === editingAlbumId);
-            const updatedFields = {
-                title,
-                date,
-                description: desc,
-                drivelink: driveLink,
-                coverimage: coverImage || targetAlbum.coverImage
-            };
+        // If they are offline and trying to upload a massive image file, stop them safely.
+        if (coverFile && !navigator.onLine) {
+            return alert("You must be online to upload new images. Please connect to the internet.");
+        }
+
+        let finalImageUrl = coverImage || "https://images.unsplash.com/photo-1472289065668-ce650ac443d2?q=80&w=800&auto=format&fit=crop";
+
+        // 1. Upload Physical File to Supabase Storage (if selected)
+        if (coverFile) {
+            const fileExt = coverFile.name.split('.').pop();
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
 
             try {
-                const { error } = await supabase
-                    .from('photos')
-                    .update(updatedFields)
-                    .eq('id', editingAlbumId);
+                const { error: uploadError } = await supabase.storage
+                    .from('covers')
+                    .upload(fileName, coverFile);
 
-                if (error) throw error;
+                if (uploadError) throw uploadError;
 
-                const updatedAlbums = albums.map(a => a.id === editingAlbumId ? {
-                    ...a, title, date, desc, driveLink, coverImage: coverImage || a.coverImage
-                } : a);
-                
-                setAlbums(updatedAlbums);
-                localStorage.setItem('visionari_albums_cache', JSON.stringify(updatedAlbums));
-            } catch (error) {
-                console.error('Error updating album:', error);
-                alert('Failed to update album in cloud. Check internet connection.');
+                // Get the generated public URL
+                const { data: publicUrlData } = supabase.storage
+                    .from('covers')
+                    .getPublicUrl(fileName);
+
+                finalImageUrl = publicUrlData.publicUrl;
+            } catch (err) {
+                console.error("Image upload failed:", err);
+                return alert("Failed to upload image to bucket. Check your internet.");
+            }
+        }
+
+        // 2. Optimistic Offline-First Save 
+        if (editingAlbumId) {
+            const updatedAlbums = albums.map(a => a.id === editingAlbumId ? {
+                ...a, title, date, desc, driveLink, coverImage: finalImageUrl
+            } : a);
+            
+            setAlbums(updatedAlbums);
+            localStorage.setItem('visionari_albums_cache', JSON.stringify(updatedAlbums));
+            setIsAlbumModalOpen(false);
+
+            // Cloud Sync Background
+            try {
+                await supabase.from('photos').update({
+                    title, date, description: desc, drivelink: driveLink, coverimage: finalImageUrl
+                }).eq('id', editingAlbumId);
+            } catch (err) {
+                console.warn("Cloud sync failed for album edit");
             }
         } else {
             const newAlbumObj = {
                 id: Date.now(),
-                title,
-                date,
-                desc,
+                title, date, desc,
                 itemCount: "0",
                 driveLink,
-                coverImage: coverImage || "https://images.unsplash.com/photo-1472289065668-ce650ac443d2?q=80&w=800&auto=format&fit=crop"
+                coverImage: finalImageUrl
             };
 
-            const dbPayload = {
-                id: newAlbumObj.id,
-                title: newAlbumObj.title,
-                date: newAlbumObj.date,
-                description: newAlbumObj.desc,
-                itemcount: newAlbumObj.itemCount,
-                drivelink: newAlbumObj.driveLink,
-                coverimage: newAlbumObj.coverImage
-            };
-
-            try {
-                const { error } = await supabase.from('photos').insert([dbPayload]);
-                if (error) throw error;
-                
-                const updatedAlbums = [newAlbumObj, ...albums];
-                setAlbums(updatedAlbums);
-                localStorage.setItem('visionari_albums_cache', JSON.stringify(updatedAlbums));
-            } catch (error) {
-                console.error('Error creating album:', error);
-                alert('Failed to save album to cloud. Check internet connection.');
-            }
-        }
-        setIsAlbumModalOpen(false);
-    };
-
-    // Delete Album
-    const confirmDelete = async () => {
-        try {
-            const { error } = await supabase.from('photos').delete().eq('id', deletingAlbumId);
-            if (error) throw error;
-            
-            const updatedAlbums = albums.filter(a => a.id !== deletingAlbumId);
+            const updatedAlbums = [newAlbumObj, ...albums];
             setAlbums(updatedAlbums);
             localStorage.setItem('visionari_albums_cache', JSON.stringify(updatedAlbums));
-        } catch (error) {
-            console.error('Error deleting album:', error);
-            alert('Failed to delete album from cloud. Check internet connection.');
+            setIsAlbumModalOpen(false);
+
+            // Cloud Sync Background
+            try {
+                await supabase.from('photos').insert([{
+                    id: newAlbumObj.id,
+                    title: newAlbumObj.title,
+                    date: newAlbumObj.date,
+                    description: newAlbumObj.desc,
+                    itemcount: newAlbumObj.itemCount,
+                    drivelink: newAlbumObj.driveLink,
+                    coverimage: newAlbumObj.coverImage
+                }]);
+            } catch (err) {
+                console.warn("Cloud sync failed for new album");
+            }
         }
+    };
+
+    // ==========================================
+    // OPTIMISTIC OFFLINE-FIRST DELETE
+    // ==========================================
+    const confirmDelete = async () => {
+        const idToDelete = deletingAlbumId;
+        
+        // Optimistic Delete
+        const updatedAlbums = albums.filter(a => a.id !== idToDelete);
+        setAlbums(updatedAlbums);
+        localStorage.setItem('visionari_albums_cache', JSON.stringify(updatedAlbums));
         setIsDeleteModalOpen(false);
+
+        // Cloud Sync Background
+        try {
+            await supabase.from('photos').delete().eq('id', idToDelete);
+        } catch (error) {
+            console.warn('Cloud sync failed for album deletion');
+        }
     };
 
     // ==========================================
@@ -211,7 +233,6 @@ export default function Photos() {
             try {
                 const restoredAlbums = JSON.parse(event.target.result);
                 if (Array.isArray(restoredAlbums)) {
-                    // Push restored albums to Supabase
                     const dbPayloads = restoredAlbums.map(a => ({
                         id: a.id || Date.now(),
                         title: a.title,
@@ -237,7 +258,6 @@ export default function Photos() {
         reader.readAsText(file);
     };
 
-    // Format Date helper
     const formatDate = (dateString) => {
         if (!dateString) return "No date set";
         const options = { year: 'numeric', month: 'short', day: '2-digit' };
@@ -250,7 +270,6 @@ export default function Photos() {
             showBackButton={false} 
             rightActions={
                 <div className="flex items-center gap-3">
-                    {/* ONLY SHOW THESE ACTIONS IF OFFICER */}
                     {userRole === 'officer' && (
                         <>
                             <button 
@@ -273,7 +292,6 @@ export default function Photos() {
         >
             <div className="w-full max-w-[1600px] mx-auto -mt-6 relative z-10 mt-[30px]">
                 
-                {/* PHOTO ALBUMS GRID */}
                 {albums.length === 0 ? (
                     <div className="w-full bg-white border border-dashed border-gray-200 rounded-3xl p-20 flex flex-col items-center justify-center text-center shadow-sm">
                         <p className="text-gray-400 font-bold mb-2 text-lg">No albums yet!</p>
@@ -284,7 +302,6 @@ export default function Photos() {
                         {albums.map(album => (
                             <div key={album.id} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden flex flex-col group">
                                 
-                                {/* Cover Image */}
                                 <div className="h-56 w-full overflow-hidden relative bg-gray-100">
                                     <img 
                                         src={album.coverImage} 
@@ -293,12 +310,10 @@ export default function Photos() {
                                     />
                                 </div>
 
-                                {/* Card Content */}
                                 <div className="p-6 flex flex-col flex-1">
                                     <div className="flex justify-between items-start mb-2">
                                         <h3 className="text-xl font-bold text-gray-900 pr-4">{album.title}</h3>
                                         
-                                        {/* ONLY SHOW EDIT/DELETE ICONS IF OFFICER */}
                                         {userRole === 'officer' && (
                                             <div className="flex items-center gap-2 text-gray-400">
                                                 <button onClick={() => handleOpenEdit(album)} className="hover:text-gray-800 transition-colors">
@@ -322,7 +337,6 @@ export default function Photos() {
                                         <span>{album.itemCount} ITEMS</span>
                                     </div>
 
-                                    {/* Redirect to Google Drive - VISIBLE TO EVERYONE */}
                                     <button 
                                         onClick={() => window.open(album.driveLink, '_blank')}
                                         className="w-full py-3.5 rounded-xl bg-[#CC0000] text-white font-bold text-sm hover:bg-red-800 transition-colors shadow-sm"
@@ -337,9 +351,6 @@ export default function Photos() {
 
             </div>
 
-            {/* ==================================================
-                ADD / EDIT ALBUM MODAL (Officers Only)
-            ================================================== */}
             {userRole === 'officer' && isAlbumModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsAlbumModalOpen(false)}></div>
@@ -388,7 +399,7 @@ export default function Photos() {
                                         <UploadCloud size={24} />
                                     </div>
                                     <p className="text-sm font-bold text-gray-900 relative z-10">Click to upload or drag and drop</p>
-                                    <p className="text-xs text-gray-500 mt-1 relative z-10">SVG, PNG, JPG or GIF (max. 800x400px)</p>
+                                    <p className="text-xs text-gray-500 mt-1 relative z-10">SVG, PNG, JPG or GIF</p>
                                 </div>
                             </div>
                         </div>
@@ -405,9 +416,6 @@ export default function Photos() {
                 </div>
             )}
 
-            {/* ==================================================
-                BACKUP / RESTORE MODAL (Officers Only)
-            ================================================== */}
             {userRole === 'officer' && isBackupModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsBackupModalOpen(false)}></div>
@@ -449,9 +457,6 @@ export default function Photos() {
                 </div>
             )}
 
-            {/* ==================================================
-                DELETE ALBUM MODAL (Officers Only)
-            ================================================== */}
             {userRole === 'officer' && isDeleteModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsDeleteModalOpen(false)}></div>

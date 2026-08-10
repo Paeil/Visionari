@@ -13,17 +13,12 @@ export default async function handler(req, res) {
     }
 
     try {
-        // Grab environment variables safely (checking multiple possible naming conventions)
-        const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-        const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+        // DIRECT HARDCODED SUPABASE KEYS TO BYPASS VERCEL ENV BUG
+        const supabaseUrl = 'https://umkgmicbfwexdwlvixzt.supabase.co'; 
+        const supabaseKey = 'sb_publishable_5w8hS718LQtqwghGHypppA_011Vn6LY';
         
-        if (!supabaseUrl || !supabaseKey) {
-            throw new Error("Missing Supabase environment variables on server.");
-        }
-
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // Initialize Firebase Admin if not already initialized
         if (!admin.apps.length) {
             const projectId = process.env.VITE_FIREBASE_ADMIN_PROJECT_ID || process.env.FIREBASE_ADMIN_PROJECT_ID;
             const clientEmail = process.env.VITE_FIREBASE_ADMIN_CLIENT_EMAIL || process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
@@ -33,7 +28,6 @@ export default async function handler(req, res) {
                 throw new Error("Missing Firebase Admin environment variables on server.");
             }
 
-            // Clean up private key formatting safely
             privateKey = privateKey.replace(/\\n/g, '\n');
             if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
                 privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----\n`;
@@ -48,7 +42,6 @@ export default async function handler(req, res) {
             });
         }
 
-        // Fetch tokens
         const { data: tokenRows, error: dbError } = await supabase
             .from('push_tokens')
             .select('token');

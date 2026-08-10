@@ -205,15 +205,20 @@ export default function TaskManagement() {
         try {
             const { error } = await supabase.from('tasks').insert([newTask]);
             if (error) throw error;
+            
+            // 📣 TRIGGER PUSH NOTIFICATION
+            await fetch('/api/send-notification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    title: "New Task Assigned! 📝", 
+                    body: `${taskTitle.trim()} (Due: ${taskDate ? formatDisplayDate(taskDate) : 'TBA'})` 
+                })
+            });
+            
         } catch (error) {
             console.warn('Task saved locally to cache, but cloud sync failed (offline).');
         }
-    };
-
-    const openDeleteModal = (id) => {
-        if (userRole !== 'officer') return;
-        setTaskToDelete(id);
-        setIsDeleteModalOpen(true);
     };
 
     // --- OPTIMISTIC OFFLINE-FIRST DELETE ---

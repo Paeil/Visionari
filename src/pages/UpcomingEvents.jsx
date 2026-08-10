@@ -186,7 +186,7 @@ export default function UpcomingEvents() {
         }, {});
 
     // Handlers
-    const handleAddEvent = async () => {
+   const handleAddEvent = async () => {
         if (userRole !== 'officer') return;
         if (!eventName.trim() || !eventDate) return;
         
@@ -207,6 +207,17 @@ export default function UpcomingEvents() {
             const updatedEvents = [...events, newEvent];
             setEvents(updatedEvents);
             localStorage.setItem('visionari_events_cache', JSON.stringify(updatedEvents));
+            
+            // 📣 TRIGGER PUSH NOTIFICATION
+            await fetch('/api/send-notification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    title: "New Event Scheduled! 📅", 
+                    body: `${eventName.trim()} on ${eventDate}` 
+                })
+            });
+
         } catch (error) {
             console.error('Error adding event:', error);
             alert('Failed to save event to cloud. Check internet connection.');

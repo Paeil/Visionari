@@ -63,10 +63,17 @@ export default async function handler(req, res) {
         const tokens = tokenRows.map(row => row.token);
 
         // 4. Blast the Notification!
-        const response = await getMessaging().sendEachForMulticast({
+        const message = {
             notification: { title, body },
+            webpush: {
+                fcmOptions: {
+                    link: 'https://visionari-alpha.vercel.app/' // This forces Firebase to open your site!
+                }
+            },
             tokens: tokens,
-        });
+        };
+
+        const response = await getMessaging().sendEachForMulticast(message);
 
         return res.status(200).json({
             success: true,

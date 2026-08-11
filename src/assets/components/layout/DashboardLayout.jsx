@@ -498,9 +498,6 @@ export default function DashboardLayout({
                                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                                 </button>
                             </div>
-                            <p className="text-xs text-gray-400 font-medium px-1">
-                                Hint: <span className="font-bold text-gray-600">Visionari_ISA_27</span>
-                            </p>
                             {authError && (
                                 <p className="text-xs font-bold text-[#CC0000]">Incorrect password. Please try again.</p>
                             )}

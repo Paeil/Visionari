@@ -105,6 +105,56 @@ const TaskForm = ({
 );
 
 // ============================================================
+// REUSABLE TASK CARD (Moved outside to prevent click glitches)
+// ============================================================
+const TaskCard = ({ task, type, userRole, formatDisplayDate, onEdit, onDelete }) => {
+    const isPriority = type === 'priority';
+    return (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 overflow-hidden relative flex justify-between gap-6 group hover:shadow-md transition-shadow">
+            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isPriority ? 'bg-[#CC0000]' : 'bg-[#E65C00]'}`} />
+            <div className="flex flex-col pl-2 min-w-0">
+                <h3 className="text-lg font-bold text-gray-900">{task.title}</h3>
+                <div className="flex items-center gap-3 mb-3 mt-1 flex-wrap">
+                    <p className="text-sm font-semibold text-gray-500">Due: {formatDisplayDate(task.date)}</p>
+                    {task.course && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isPriority ? 'text-[#CC0000] bg-red-50' : 'text-[#E65C00] bg-orange-50'}`}>
+                            {task.course}
+                        </span>
+                    )}
+                </div>
+                {task.description ? (
+                    <p className="text-sm text-gray-600 leading-relaxed pr-4">{task.description}</p>
+                ) : (
+                    <p className="text-sm text-gray-400 italic">No description provided.</p>
+                )}
+            </div>
+            {userRole === 'officer' && (
+                <div className="flex flex-col items-center gap-3 shrink-0 pt-1">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onEdit(task); }} 
+                        className="text-gray-300 hover:text-gray-800 transition-colors" 
+                        title="Edit task"
+                    >
+                        <Pencil size={20} />
+                    </button>
+                    <button 
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const taskId = task.id || task.uuid || task.task_id; // Database fallback
+                            onDelete(taskId); 
+                        }} 
+                        className="text-gray-300 hover:text-[#CC0000] transition-colors" 
+                        title="Delete task"
+                    >
+                        <Trash2 size={20} />
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================
 // MAIN COMPONENT
 // ============================================================
 
@@ -132,16 +182,14 @@ export default function TaskManagement() {
         fetchTasks();
     }, []);
 
-   const fetchTasks = async () => {
-        // 1. INSTANT OFFLINE BYPASS
+    const fetchTasks = async () => {
         if (!navigator.onLine) {
             console.warn('Device is offline. Loading tasks instantly from cache...');
             const cached = localStorage.getItem('visionari_tasks_cache');
             if (cached) setTasks(JSON.parse(cached));
-            return; // Stop here, skip Supabase!
+            return;
         }
 
-        // 2. ONLINE FETCH
         try {
             const { data, error } = await supabase.from('tasks').select('*');
             if (error) throw error;
@@ -179,7 +227,6 @@ export default function TaskManagement() {
         setIsAddModalOpen(true);
     };
 
-    // --- OPTIMISTIC OFFLINE-FIRST ADD ---
     const handleAddTask = async () => {
         if (userRole !== 'officer' || !taskTitle.trim()) return;
 
@@ -193,7 +240,6 @@ export default function TaskManagement() {
             status: 'pending',
         };
 
-        // 1. Optimistic Save: Update state and localStorage instantly!
         const updatedTasks = [...tasks, newTask];
         setTasks(updatedTasks);
         localStorage.setItem('visionari_tasks_cache', JSON.stringify(updatedTasks));
@@ -201,12 +247,10 @@ export default function TaskManagement() {
         resetForm();
         setIsAddModalOpen(false);
 
-        // 2. Cloud Sync: Silently try to save to Supabase in the background
         try {
             const { error } = await supabase.from('tasks').insert([newTask]);
             if (error) throw error;
             
-            // 📣 TRIGGER PUSH NOTIFICATION
             await fetch('/api/send-notification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -217,37 +261,39 @@ export default function TaskManagement() {
             });
             
         } catch (error) {
-            console.warn('Task saved locally to cache, but cloud sync failed (offline).');
+            console.warn('Task saved locally to cache, but cloud sync failed (offline).', error);
         }
     };
 
-    // --- OPEN DELETE MODAL ---
     const openDeleteModal = (taskId) => {
         if (userRole !== 'officer') return;
+        if (!taskId) {
+            console.error("Task ID is missing. Check your Supabase column names!");
+            return;
+        }
         setTaskToDelete(taskId);
         setIsDeleteModalOpen(true);
     };
 
-    // --- OPTIMISTIC OFFLINE-FIRST DELETE ---
     const confirmDelete = async () => {
-        if (userRole !== 'officer' || taskToDelete === null) return;
+        if (userRole !== 'officer' || taskToDelete == null) return;
 
         const idToDelete = taskToDelete;
 
-        // 1. Optimistic Delete: Remove from state and update localStorage instantly!
-        const updatedTasks = tasks.filter(task => task.id !== idToDelete);
+        // Force string comparison to prevent integer/UUID mismatch bugs
+        const updatedTasks = tasks.filter(task => String(task.id) !== String(idToDelete));
+        
         setTasks(updatedTasks);
         localStorage.setItem('visionari_tasks_cache', JSON.stringify(updatedTasks));
 
         setTaskToDelete(null);
         setIsDeleteModalOpen(false);
 
-        // 2. Cloud Sync
         try {
             const { error } = await supabase.from('tasks').delete().eq('id', idToDelete);
             if (error) throw error;
         } catch (error) {
-            console.warn('Task deleted locally from cache, but cloud sync failed (offline).');
+            console.warn('Task deleted locally from cache, but cloud sync failed (offline).', error);
         }
     };
 
@@ -262,7 +308,6 @@ export default function TaskManagement() {
         setIsEditModalOpen(true);
     };
 
-    // --- OPTIMISTIC OFFLINE-FIRST EDIT ---
     const handleSaveEdit = async () => {
         if (userRole !== 'officer' || !taskTitle.trim() || !taskToEdit) return;
 
@@ -274,8 +319,7 @@ export default function TaskManagement() {
             description: taskDesc.trim(),
         };
 
-        // 1. Optimistic Edit: Update state and localStorage instantly!
-        const updatedTasks = tasks.map((task) => task.id !== taskToEdit.id ? task : { ...task, ...updatedFields });
+        const updatedTasks = tasks.map((task) => String(task.id) !== String(taskToEdit.id) ? task : { ...task, ...updatedFields });
         setTasks(updatedTasks);
         localStorage.setItem('visionari_tasks_cache', JSON.stringify(updatedTasks));
 
@@ -284,48 +328,16 @@ export default function TaskManagement() {
         setIsEditModalOpen(false);
         resetForm();
 
-        // 2. Cloud Sync
         try {
             const { error } = await supabase.from('tasks').update(updatedFields).eq('id', editId);
             if (error) throw error;
         } catch (error) {
-            console.warn('Task updated locally in cache, but cloud sync failed (offline).');
+            console.warn('Task updated locally in cache, but cloud sync failed (offline).', error);
         }
     };
 
     const closeAddModal = () => { setIsAddModalOpen(false); resetForm(); };
     const closeEditModal = () => { setIsEditModalOpen(false); setTaskToEdit(null); resetForm(); };
-
-    const TaskCard = ({ task, type }) => {
-        const isPriority = type === 'priority';
-        return (
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 overflow-hidden relative flex justify-between gap-6 group hover:shadow-md transition-shadow">
-                <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isPriority ? 'bg-[#CC0000]' : 'bg-[#E65C00]'}`} />
-                <div className="flex flex-col pl-2 min-w-0">
-                    <h3 className="text-lg font-bold text-gray-900">{task.title}</h3>
-                    <div className="flex items-center gap-3 mb-3 mt-1 flex-wrap">
-                        <p className="text-sm font-semibold text-gray-500">Due: {formatDisplayDate(task.date)}</p>
-                        {task.course && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isPriority ? 'text-[#CC0000] bg-red-50' : 'text-[#E65C00] bg-orange-50'}`}>
-                                {task.course}
-                            </span>
-                        )}
-                    </div>
-                    {task.description ? (
-                        <p className="text-sm text-gray-600 leading-relaxed pr-4">{task.description}</p>
-                    ) : (
-                        <p className="text-sm text-gray-400 italic">No description provided.</p>
-                    )}
-                </div>
-                {userRole === 'officer' && (
-                    <div className="flex flex-col items-center gap-3 shrink-0 pt-1">
-                        <button onClick={() => openEditModal(task)} className="text-gray-300 hover:text-gray-800 transition-colors" title="Edit task"><Pencil size={20} /></button>
-                        <button onClick={() => openDeleteModal(task.id)} className="text-gray-300 hover:text-[#CC0000] transition-colors" title="Delete task"><Trash2 size={20} /></button>
-                    </div>
-                )}
-            </div>
-        );
-    };
 
     return (
         <DashboardLayout title="Task Management" showBackButton={true}>
@@ -343,7 +355,17 @@ export default function TaskManagement() {
                     </div>
                     <div className="flex flex-col gap-4">
                         {priorityTasks.length > 0 ? (
-                            priorityTasks.map((task) => <TaskCard key={task.id} task={task} type="priority" />)
+                            priorityTasks.map((task) => (
+                                <TaskCard 
+                                    key={task.id} 
+                                    task={task} 
+                                    type="priority" 
+                                    userRole={userRole}
+                                    formatDisplayDate={formatDisplayDate}
+                                    onEdit={openEditModal}
+                                    onDelete={openDeleteModal}
+                                />
+                            ))
                         ) : (
                             <div className="bg-white border border-dashed border-gray-200 rounded-xl p-10 text-center">
                                 <p className="text-sm text-gray-400 font-medium">No priority tasks yet.</p>
@@ -364,7 +386,17 @@ export default function TaskManagement() {
                     </div>
                     <div className="flex flex-col gap-4">
                         {secondaryTasks.length > 0 ? (
-                            secondaryTasks.map((task) => <TaskCard key={task.id} task={task} type="secondary" />)
+                            secondaryTasks.map((task) => (
+                                <TaskCard 
+                                    key={task.id} 
+                                    task={task} 
+                                    type="secondary" 
+                                    userRole={userRole}
+                                    formatDisplayDate={formatDisplayDate}
+                                    onEdit={openEditModal}
+                                    onDelete={openDeleteModal}
+                                />
+                            ))
                         ) : (
                             <div className="bg-white border border-dashed border-gray-200 rounded-xl p-10 text-center">
                                 <p className="text-sm text-gray-400 font-medium">No secondary tasks yet.</p>

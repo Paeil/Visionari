@@ -221,6 +221,13 @@ export default function TaskManagement() {
         }
     };
 
+    // --- OPEN DELETE MODAL ---
+    const openDeleteModal = (taskId) => {
+        if (userRole !== 'officer') return;
+        setTaskToDelete(taskId);
+        setIsDeleteModalOpen(true);
+    };
+
     // --- OPTIMISTIC OFFLINE-FIRST DELETE ---
     const confirmDelete = async () => {
         if (userRole !== 'officer' || taskToDelete === null) return;

@@ -24,3 +24,27 @@ messaging.onBackgroundMessage((payload) => {
 
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
+
+// Listen for clicks on the notification
+self.addEventListener('notificationclick', (event) => {
+    // 1. Close the notification banner immediately after clicking
+    event.notification.close();
+
+    // 2. Define the URL to open (Your live Vercel deployment)
+    const targetUrl = 'https://visionari-alpha.vercel.app/';
+
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            // 3. Check if Visionari is already open in a tab. If it is, just focus/switch to it!
+            for (const client of clientList) {
+                if (client.url.includes(targetUrl) && 'focus' in client) {
+                    return client.focus();
+                }
+            }
+            // 4. If the app is completely closed, open a brand new tab to the target URL
+            if (clients.openWindow) {
+                return clients.openWindow(targetUrl);
+            }
+        })
+    );
+});
